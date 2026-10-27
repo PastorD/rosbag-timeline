@@ -1,0 +1,31 @@
+{
+  "recorder": "/bag_recorder",
+  "topics": {
+    "/robot/lidar/points": {
+      "publishers": [
+        "/lidar_driver"
+      ],
+      "subscribers": [
+        "/localization",
+        "/bag_recorder"
+      ]
+    },
+    "/robot/imu/value": {
+      "publishers": [
+        "/imu_driver"
+      ],
+      "subscribers": [
+        "/localization",
+        "/bag_recorder"
+      ]
+    },
+    "/robot/controller/counter": {
+      "publishers": [
+        "/controller"
+      ],
+      "subscribers": [
+        "/bag_recorder"
+      ]
+    }
+  }
+}

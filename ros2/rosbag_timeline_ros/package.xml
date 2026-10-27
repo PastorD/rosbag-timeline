@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>rosbag_timeline_ros</name><version>0.1.0</version>
+  <description>Optional ros2 run wrapper for the standalone rosbag-timeline Python package.</description>
+  <maintainer email="maintainers@example.invalid">rosbag-timeline contributors</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <exec_depend>python3</exec_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rosbag-timeline"
+version = "0.1.0"
+description = "Lazy MCAP timestamp timelines and streaming ROS 2 timing statistics, without ROS"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+dependencies = ["mcap>=1.2,<2", "rosbags>=0.10,<0.12", "lz4>=4", "zstandard>=0.22"]
+
+[project.optional-dependencies]
+stats = ["matplotlib>=3.7"]
+test = ["pytest>=8", "numpy>=1.24", "build>=1", "playwright>=1.45"]
+
+[project.scripts]
+rosbag-timeline = "rosbag_timeline.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+rosbag_timeline = ["web/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

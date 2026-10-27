@@ -1,0 +1,5 @@
+include LICENSE README.md VALIDATION.md
+recursive-include src/rosbag_timeline/web *
+recursive-include tests *.py
+recursive-include examples *.json *.mcap *.png *.csv
+recursive-include ros2 package.xml CMakeLists.txt rosbag-timeline

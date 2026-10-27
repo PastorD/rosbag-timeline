@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.16)
+project(rosbag_timeline_ros)
+find_package(ament_cmake REQUIRED)
+install(PROGRAMS scripts/rosbag-timeline DESTINATION lib/${PROJECT_NAME})
+ament_package()

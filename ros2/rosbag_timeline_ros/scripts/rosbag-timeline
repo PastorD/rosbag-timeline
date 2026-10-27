@@ -1,0 +1,3 @@
+#!/usr/bin/env python3
+from rosbag_timeline.cli import main
+main()

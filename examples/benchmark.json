@@ -1,0 +1,27 @@
+{
+  "bag": "million.mcap",
+  "bag_bytes": 29948096,
+  "description": "Synthetic MCAP, three topics, one million small messages; timings are machine-specific.",
+  "catalog_seconds": 0.018638688000010006,
+  "chunk_count": 77,
+  "cold_one_second_one_topic_seconds": 0.040314447000127984,
+  "partial_messages": 334,
+  "chunks_read_for_partial": 1,
+  "remaining_index_seconds": 9.44921699500037,
+  "indexed_messages": 1000000,
+  "warm_full_density_seconds": 1.0341082479999386,
+  "density_bin_count": 1800,
+  "density_total": 1000000,
+  "six_metrics_two_pass_statistics_seconds": 16.356612232000316,
+  "stats_messages": 1000000,
+  "cache_bytes": 131149824,
+  "peak_process_rss_mib_linux": 85.80859375,
+  "environment": {
+    "python": "3.12.14",
+    "platform": "Linux x86_64",
+    "mcap": "1.5.0",
+    "rosbags": "0.11.8",
+    "zstandard": "0.25.0",
+    "sqlite": "3.53.1"
+  }
+}
