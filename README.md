@@ -10,40 +10,49 @@ published PyPI project, and the optional ROS wrapper has not been run under ROS.
 
 ## Install and run
 
-Clone the repository (or extract the source ZIP), then install from its directory:
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then clone
+the repository (or extract the source ZIP). Run the `uv` commands below from the
+repository directory:
 
 ```bash
 git clone https://github.com/PastorD/rosbag-timeline.git
 cd rosbag-timeline
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install '.[stats]'
+uv sync --extra stats
 
-rosbag-timeline view /path/to/recording.mcap
+uv run rosbag-timeline view /path/to/recording.mcap
 # Or load all .mcap splits in a bag directory:
-rosbag-timeline view /path/to/rosbag_directory
+uv run rosbag-timeline view /path/to/rosbag_directory
 ```
+
+`uv sync` creates and manages the project environment and installs the package;
+`uv run` uses it without shell activation. The `stats` extra adds Matplotlib for
+image reports. Use `uv sync` without that extra if you only need the viewer or
+JSON statistics. Commands that export images below explicitly request the extra.
+The first sync also creates `uv.lock` locally, recording the resolved versions.
+See [uv's project guide](https://docs.astral.sh/uv/guides/projects/) for details.
 
 The viewer opens `http://127.0.0.1:8765`. Everything stays local. An initial
 10-second window and up to 12 topics are selected, so opening a large bag does
 not immediately request every message. Select more topics or click Full range
-when desired. Stop with Ctrl+C. `python -m rosbag_timeline` works too.
+when desired. Stop with Ctrl+C. `uv run python -m rosbag_timeline` works too.
+Once dependencies are installed, `uv run --no-sync rosbag-timeline ...` runs
+without checking or updating the environment, including when working offline.
 
 For a headless workstation, use `--no-browser`, and forward port 8765 with SSH:
 
 ```bash
 ssh -L 8765:127.0.0.1:8765 your-workstation
 # On that workstation:
-rosbag-timeline view recording.mcap --no-browser
+uv run rosbag-timeline view recording.mcap --no-browser
 ```
 
 Try the included small example:
 
 ```bash
-rosbag-timeline view examples/demo.mcap --nodes examples/demo.nodes.json
+uv run rosbag-timeline view examples/demo.mcap --nodes examples/demo.nodes.json
 # Or generate another valid bag, including point-cloud payloads:
-rosbag-timeline demo demo.mcap --messages 20000 --payload-bytes 12000
-rosbag-timeline view demo.mcap --nodes demo.nodes.json
+uv run rosbag-timeline demo demo.mcap --messages 20000 --payload-bytes 12000
+uv run rosbag-timeline view demo.mcap --nodes demo.nodes.json
 ```
 
 ## The three times are different
@@ -65,6 +74,101 @@ are compatible. In particular, a simulated ROS stamp and wall-clock middleware
 publication time cannot be subtracted meaningfully without a clock mapping.
 Negative values are preserved. Zero stamps are retained but excluded from gaps
 and periods by default; `--include-zero-stamps` treats zero as a valid epoch.
+
+## How the calculations work
+
+The examples below use one topic and timestamps on a compatible clock. Absolute
+times are shown in seconds and differences in milliseconds; the implementation
+subtracts **integer nanoseconds** before converting values for display.
+
+### Differences within one message
+
+For message A, the embedded stamp is 10.000 s, publication time is 10.020 s, and
+recording time is 10.030 s. Each arrow names a separate metric:
+
+```mermaid
+flowchart LR
+    S["Stamp S = 10.000 s"] -->|"publish_stamp: P - S = 20 ms"| P["Publish P = 10.020 s"]
+    P -->|"record_publish: R - P = 10 ms"| R["Record R = 10.030 s"]
+    S -->|"record_stamp: R - S = 30 ms"| R
+```
+
+The diagram shows timestamp differences, not a proportional time scale or proof
+that the stamp was created by the publishing node. When all three timestamps are
+available, `R - S = (P - S) + (R - P)`; here, `30 ms = 20 ms + 10 ms`.
+
+In **topic mode**, the default block spans S to P (20 ms for A); choosing S to R
+shows the full 30 ms. In **node mode**, the default line starts at S on the
+candidate publisher row and ends at R on the recorder row. Selecting P as the
+start instead shows the 10 ms publication-to-recording interval. The recorder's
+R does not provide receipt times for other subscriber nodes.
+
+### Periods between consecutive messages
+
+Now include message B from the same topic/type. Messages are ordered by **R**
+within the selected recording-time window:
+
+| Message | Stamp S (s) | Publish P (s) | Record R (s) |
+|---|---:|---:|---:|
+| A | 10.000 | 10.020 | 10.030 |
+| B | 10.100 | 10.130 | 10.145 |
+
+The first three metrics compare timestamps **within** a row; the last three
+subtract the previous row's timestamp **in the same column**:
+
+| Metric | A | B |
+|---|---:|---:|
+| `publish_stamp` = P - S | 20 ms | 30 ms |
+| `record_stamp` = R - S | 30 ms | 45 ms |
+| `record_publish` = R - P | 10 ms | 15 ms |
+| `stamp_period` = current S - previous S | No previous message | 100 ms |
+| `publish_period` = current P - previous P | No previous message | 110 ms |
+| `record_period` = current R - previous R | No previous message | 115 ms |
+
+For example, B's recording period is `(10.145 - 10.030) s = 115 ms`.
+The increasing stamp age explains why its recording period is longer than its
+stamp period: `115 ms = 100 ms + (45 - 30) ms`. A period value belongs to the
+**later message**, so selecting the 115 ms period highlights B.
+
+### From values to statistics and highlighted messages
+
+For `record_stamp`, the values above are `[30, 45] ms`. They produce:
+
+| Statistic | Calculation | Result |
+|---|---|---:|
+| Count | Number of valid values | 2 |
+| Mean | `(30 + 45) / 2` | 37.5 ms |
+| Population standard deviation | `sqrt(((30 - 37.5)^2 + (45 - 37.5)^2) / 2)` | 7.5 ms |
+| Minimum / maximum | Smallest / largest value | 30 / 45 ms |
+
+The first pass computes these aggregates, using online updates rather than
+retaining every value. A second pass counts values in histogram bins. Selecting
+the bin containing 45 ms highlights B in the timeline; selecting all bins
+highlights A and B. Bin matching uses `lower <= value < upper` on the selected
+topic and metric. In density mode, the viewer highlights matching counts instead
+of drawing an individual event for each message.
+
+Filtering happens **before** period and aggregate calculations. For example, a
+recording-time window `[10.100, 10.200) s` contains only B: its `record_stamp`
+mean becomes 45 ms and no period is available, because A is outside the window.
+The CLI's `--start` and `--end` are seconds relative to the bag's earliest R;
+the absolute window above must be converted to that origin before using them.
+
+### Negative, missing, and fallback timestamps
+
+* **Future stamp:** with S = 10.200 s, P = 10.170 s, R = 10.180 s, the metrics
+  are `publish_stamp = -30 ms`, `record_stamp = -20 ms`, and
+  `record_publish = 10 ms`. Negative values stay in statistics, and the stamped
+  topic interval points backward. Check clock alignment and stamp meaning.
+* **Missing stamp:** P and R still give `record_publish` and their own periods;
+  S-dependent values are absent, not zero. A missing/invalid S also breaks stamp
+  periods on both sides of that message; the next valid S is not paired across
+  the gap. A zero S behaves this way unless `--include-zero-stamps` is enabled.
+* **Missing publication time:** a stored P of zero removes P-dependent values;
+  `record_stamp` and available S/R periods can still be computed.
+* **Recorder fallback:** P = R gives `record_publish = 0`, but P may be a copy of
+  R rather than a measured send time. This is not evidence of zero transport
+  delay. If S is valid, `publish_stamp` and `record_stamp` are equal in this case.
 
 ## Viewer
 
@@ -106,18 +210,18 @@ record window when investigating long delays.
 
 ```bash
 # One six-panel PNG per topic, plus statistics.json and summary.csv:
-rosbag-timeline stats recording.mcap --output timing-report
+uv run --extra stats rosbag-timeline stats recording.mcap --output timing-report
 
 # Select a record window and fuzzy topic/type matches:
-rosbag-timeline stats recording.mcap --start 20 --end 80 \
+uv run --extra stats rosbag-timeline stats recording.mcap --start 20 --end 80 \
   --search PointCloud2 --output lidar-report --format png --format svg
 
 # Exact topic selection is repeatable:
-rosbag-timeline stats recording.mcap --topic /imu --topic /odom \
+uv run --extra stats rosbag-timeline stats recording.mcap --topic /imu --topic /odom \
   --output selected-report
 
 # Machine-readable reports without Matplotlib:
-rosbag-timeline stats recording.mcap --json-only --output timing-json
+uv run rosbag-timeline stats recording.mcap --json-only --output timing-json
 ```
 
 | Metric key | Calculation |
@@ -156,13 +260,13 @@ Time outside arrays. Arrays are **not silently reduced to their first entry**.
 Use a per-topic override for TFMessage or other multi-stamp messages:
 
 ```bash
-rosbag-timeline info recording.mcap
-rosbag-timeline view recording.mcap \
+uv run rosbag-timeline info recording.mcap
+uv run rosbag-timeline view recording.mcap \
   --stamp '/tf=transforms[0].header.stamp' \
   --stamp '/custom=measurement.acquisition_time'
 
 # Suppress a misleading stamp:
-rosbag-timeline stats recording.mcap --stamp '/custom=none' --output report
+uv run --extra stats rosbag-timeline stats recording.mcap --stamp '/custom=none' --output report
 ```
 
 `info` shows discovered candidate paths and schema errors without indexing normal
@@ -191,13 +295,17 @@ MCAP message `sequence` is optional and is not a portable DDS identity by itself
 For useful bag-only node rows, capture a graph while recording:
 
 ```bash
-# Run this command in a sourced ROS 2 environment with rclpy available:
-python -m rosbag_timeline capture-graph nodes.json --wait 3 \
+# In a sourced ROS 2 environment, use the Python interpreter used by ROS:
+uv run --python /usr/bin/python3 rosbag-timeline capture-graph nodes.json --wait 3 \
   --recorder /my_bag_recorder
 
 # The viewer itself needs no ROS environment:
-rosbag-timeline view recording.mcap --nodes nodes.json
+uv run rosbag-timeline view recording.mcap --nodes nodes.json
 ```
+
+`/usr/bin/python3` is typical for an apt-installed ROS distribution; substitute
+your ROS interpreter if different. The ROS environment must provide `rclpy` and
+its dependencies. The standalone `uv` setup does not install ROS.
 
 Or write a small mapping:
 
@@ -239,7 +347,7 @@ snapshot alone cannot recover those events from an existing bag.
 
 | Part | Implementation and reason |
 |---|---|
-| Schemas / orchestration | Python + rosbags parsers: portable, easy pip installation, no compiled ROS message dependencies. |
+| Schemas / orchestration | Python + rosbags parsers: portable, installation with uv, no compiled ROS message dependencies. |
 | Bag access | MCAP summary/chunk index; memory-mapped uncompressed chunks and memoryview record slicing. Zstd/LZ4 use native libraries. |
 | Timing extraction | Partial CDR cursor: no complete Python message objects or NumPy point arrays. Primitive sequences before a stamp can be skipped in O(1); variable-size structures must be walked. |
 | Cache / queries | SQLite with integer nanoseconds, a `(topic, record time, physical position)` index, bounded insertion batches, WAL and 32 MiB database page cache. |
@@ -275,13 +383,13 @@ settings when recording. The fallback covers unchunked MCAP as well.
 
 ```bash
 # Optional: populate the timing cache before opening a whole recording:
-rosbag-timeline index recording.mcap
+uv run rosbag-timeline index recording.mcap
 
 # Only pre-index a relevant topic and time window:
-rosbag-timeline index recording.mcap --search lidar --start 20 --end 80
+uv run rosbag-timeline index recording.mcap --search lidar --start 20 --end 80
 
 # Alternate cache location and CRC validation:
-rosbag-timeline view recording.mcap --cache-dir /fast-disk/timing-cache \
+uv run rosbag-timeline view recording.mcap --cache-dir /fast-disk/timing-cache \
   --validate-crcs
 ```
 
@@ -304,16 +412,15 @@ CPU, compression ratio or large payloads.
 Reproduce on your computer:
 
 ```bash
-rosbag-timeline demo million.mcap --messages 1000000
-python tests/benchmark.py million.mcap fresh-cache > benchmark.json
+uv run rosbag-timeline demo million.mcap --messages 1000000
+uv run python tests/benchmark.py million.mcap fresh-cache > benchmark.json
 ```
 
 ## Testing and optional ROS wrapper
 
 ```bash
-python -m pip install -e '.[stats,test]'
-python -m pytest -q
-python -m build
+uv run --extra stats --extra test pytest -q
+uv build
 ```
 
 Tests cover CDR endian/alignment, negative seconds, nanosecond precision, custom
@@ -322,17 +429,23 @@ partial decoding, stamp ambiguity, all supported compression modes, unindexed
 and unchunked files, split bags, lazy/cache behavior, range boundaries,
 histogram selection, and exact statistics.
 
-`ros2/rosbag_timeline_ros` is an optional ament_cmake wrapper. Install the Python
-package into the Python environment that `ros2 run` will use, copy the wrapper
-into a ROS workspace's `src`, build it with colcon and source the install:
+`ros2/rosbag_timeline_ros` is an optional ament_cmake wrapper. Copy the wrapper
+into a ROS workspace's `src`, then build it and source the install **from that
+ROS workspace**:
 
 ```bash
 colcon build --packages-select rosbag_timeline_ros
 source install/setup.bash
-ros2 run rosbag_timeline_ros rosbag-timeline view recording.mcap
 ```
 
-The wrapper deliberately does not install pip dependencies through CMake/rosdep.
+Return to this repository directory, keeping the ROS workspace sourced, and use
+the ROS-compatible Python interpreter as described for `capture-graph`:
+
+```bash
+uv run --python /usr/bin/python3 ros2 run rosbag_timeline_ros rosbag-timeline view recording.mcap
+```
+
+The wrapper deliberately does not install Python dependencies through CMake/rosdep.
 `capture-graph` also needs rclpy in that environment. A ROS deployment and a real
 hardware recording remain integration checks for the user environment.
 
